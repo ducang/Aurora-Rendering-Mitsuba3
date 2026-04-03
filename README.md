@@ -7,4 +7,4 @@ There are 3 scripts to run in order:
 3. build_scene.py for final image
 
 
-<img width="1920" height="1080" alt="test" src="Aurora.png" />
+<img width="1920" height="1080" alt="Aurora" src="Aurora.png" />
