@@ -125,26 +125,20 @@ GAUSS_K   = np.sqrt(-2.0 * np.log(THRESHOLD))
 
 
 def build_vertical_lut(zmin=80.0, zmax=300.0, nz=256,
-    #Lazarev electron energy range 
-    E_min_keV  =  1.0,   # raise to push green band lower
-    E_max_keV  = 20.0,   # lower to raise and soften peak
-    n_energies =  8,     # more = smoother curve
+    E_min_keV=1.0,
+    E_max_keV=20.0,
+    n_energies=8,
 ):
-    # Color param to create color LUT, following Figure 13a in Baranoski et al.
-
-    # Green
     GREEN_START=100.0
     GREEN_PEAK=138.0
     GREEN_END=260.0
-    GREEN_AMP=1.00,
+    GREEN_AMP=1.00
 
-    # Blue
     BLUE_START=100.0
     BLUE_PEAK=138.0
     BLUE_END=249.0
     BLUE_AMP=0.50
 
-    # Red 
     RED_START=165.0
     RED_PEAK=270.0
     RED_TOP_VAL=0.15
@@ -154,12 +148,12 @@ def build_vertical_lut(zmin=80.0, zmax=300.0, nz=256,
 
     def gauss_curve(z, start, peak, end, amp):
         sl = (peak - start) / GAUSS_K
-        sh = (end  - peak)  / GAUSS_K
-        s  = np.where(z <= peak, sl, sh)
+        sh = (end - peak) / GAUSS_K
+        s = np.where(z <= peak, sl, sh)
         return amp * np.exp(-0.5 * ((z - peak) / s) ** 2)
 
     green_c = gauss_curve(z, GREEN_START, GREEN_PEAK, GREEN_END, GREEN_AMP)
-    blue_c = gauss_curve(z, BLUE_START,  BLUE_PEAK,  BLUE_END,  BLUE_AMP)
+    blue_c  = gauss_curve(z, BLUE_START,  BLUE_PEAK,  BLUE_END,  BLUE_AMP)
 
     sl = (RED_PEAK - RED_START) / GAUSS_K
     ratio = np.clip(RED_TOP_VAL / RED_AMP, 1e-8, 1.0 - 1e-8)
@@ -170,8 +164,12 @@ def build_vertical_lut(zmin=80.0, zmax=300.0, nz=256,
     C_rgb = np.stack([red_c, green_c, blue_c], axis=1).astype(np.float32)
     C_rgb /= max(float(C_rgb.max()), 1e-8)
 
-
-    A = lazarev_deposition_summed(z.astype(np.float64), E_min_keV=E_min_keV, E_max_keV=E_max_keV, n_energies=n_energies)
+    A = lazarev_deposition_summed(
+        z.astype(np.float64),
+        E_min_keV=E_min_keV,
+        E_max_keV=E_max_keV,
+        n_energies=n_energies
+    )
     A /= max(float(A.max()), 1e-8)
 
     return z, A, C_rgb
@@ -185,16 +183,16 @@ def sample_vertical_lut_batch(z_query, z_lut, A_lut, C_rgb_lut):
     return A, C
 
 
-def choose_xy_resolution(bounds, max_xy=384):
+def choose_xy_resolution(bounds, max_xy=512, min_ny=512):
     xmin, xmax, ymin, ymax = bounds
     sx = float(xmax - xmin)
     sy = float(ymax - ymin)
     if sx >= sy:
         nx = max_xy
-        ny = max(2, int(round(max_xy * sy / max(sx, 1e-8))))
+        ny = max(min_ny, int(round(max_xy * sy / max(sx, 1e-8))))
     else:
         ny = max_xy
-        nx = max(2, int(round(max_xy * sx / max(sy, 1e-8))))
+        nx = max(min_ny, int(round(max_xy * sx / max(sy, 1e-8))))
     return nx, ny
 
 # Perlin noise helpers
@@ -250,15 +248,15 @@ def perlin_2d(x, y, seed=0):
     return x0 + v * (x1 - x0)
 
 # Tao et al. style noise for aurora visual 
-def build_tao_noises(s_map, XX, YY, L):
+def build_noise(s_map, XX, YY, L):
 
     # noise 1: high freq 1D perturbs base altitude 
     N1_AMP = 0.8  # how much the lower border jiggles
     N1_FREQ = 2.5 # cycles per curtain length 
     N1_SEED = 42
     # noise 2: low freq 1D perturbs color LUT z
-    N2_AMP = 18.0 # how much color shifts along strip
-    N2_FREQ = 1.5 # cycles per curtain 
+    N2_AMP = 0.0 # how much color shifts along strip
+    N2_FREQ = 0.8 # cycles per curtain 
     N2_SEED = 137
     # noise 3: medium freq 2D perturbs footprint density 
     N3_AMP = 0.30 #density variation amplitude
@@ -311,7 +309,6 @@ def bake_volume(
     lut_zmax=300.0,
 
     nz=128,
-    max_xy=256,
 
     # Lazarev energy range
     E_min_keV=1.0,
@@ -350,7 +347,7 @@ def bake_volume(
     )
 
     # Build the actual scene volume on visible range
-    nx, ny = choose_xy_resolution((xmin, xmax, ymin, ymax), max_xy=max_xy)
+    nx, ny = choose_xy_resolution((xmin, xmax, ymin, ymax))
 
     xs = np.linspace(xmin, xmax, nx, dtype=np.float32)
     ys = np.linspace(ymin, ymax, ny, dtype=np.float32)
@@ -374,7 +371,7 @@ def bake_volume(
     height_scale_xy = np.clip(height_scale_xy, 0.90, 1.10)
 
     # Tao et al. noise step
-    noise1, noise2, noise3 = build_tao_noises(s_map, XX, YY, L)
+    noise1, noise2, noise3 = build_noise(s_map, XX, YY, L)
 
     # apply noise1 to lower border
     z_shift_xy += noise1
@@ -409,25 +406,17 @@ def bake_volume(
         z_lookup = lut_zmin + t * (lut_zmax - lut_zmin)
 
         z_color = np.clip(z_lookup + noise2, lut_zmin, lut_zmax).astype(np.float32)
-        phase = 2.0 * np.pi * (0.015 * XX + 0.011 * YY + 0.020 * z)
-        lookup_jitter = 3.0 * np.sin(phase).astype(np.float32)   
-
-        z_lookup_j = np.clip(z_lookup + lookup_jitter, lut_zmin, lut_zmax).astype(np.float32)
-        z_color = np.clip(z_lookup_j + noise2, lut_zmin, lut_zmax).astype(np.float32)
-
-        A_xy, _ = sample_vertical_lut_batch(z_lookup_j.ravel(), z_lut, A_lut, C_rgb_lut)
+       
+        w_bot = smoothstep01((z - z_bot_xy) / edge_km)
+        w_top = smoothstep01((z_top_xy - z) / edge_km)
+        inside_w = w_bot * w_top
+        A_xy, _ = sample_vertical_lut_batch(z_lookup.ravel(), z_lut, A_lut, C_rgb_lut)
         _, C_xy = sample_vertical_lut_batch(z_color.ravel(), z_lut, A_lut, C_rgb_lut)
 
         A_xy = A_xy.reshape(ny, nx)
         C_xy = C_xy.reshape(ny, nx, 3)
-        w_bot = smoothstep01((z - z_bot_xy) / edge_km)
-        w_top = smoothstep01((z_top_xy - z) / edge_km)
-        inside_w = w_bot * w_top
-        emission_rgb[iz] = (
-            footprint_xy[:, :, np.newaxis]
-            * inside_w[:, :, np.newaxis].astype(np.float32)
-            * (A_xy[:, :, np.newaxis] * C_xy)
-        )
+
+        emission_rgb[iz] = (footprint_xy[:, :, np.newaxis] * inside_w[:, :, np.newaxis].astype(np.float32) * (A_xy[:, :, np.newaxis] * C_xy))
     bbox_min = np.array([xmin, ymin, geom_zmin], dtype=np.float32)
     bbox_max = np.array([xmax, ymax, geom_zmax], dtype=np.float32)
     
@@ -468,20 +457,19 @@ def bake_volume(
 
     print("saved:", out_npz)
     print("emission_rgb shape:", emission_rgb.shape)
-    print("bbox:", bbox_min, "→", bbox_max)
+    print("bbox:", bbox_min, ",", bbox_max)
 
 if __name__ == "__main__":
     bake_volume(
         footprint_npz="kh_footprint.npz",
         out_npz="aurora_volume.npz",
-        geom_zmin=60.0,
-        geom_zmax=170.0,   
-        lut_zmin=50.0,
+        geom_zmin=80.0,
+        geom_zmax=220.0,   
+        lut_zmin=80.0,
         lut_zmax=300.0,   
         nz=512,
-        max_xy=384,
         E_min_keV=1.0,
         E_max_keV=20.0,
         n_energies=8,
-        base_geom_height=75.0,
+        base_geom_height=220.0,
     )
